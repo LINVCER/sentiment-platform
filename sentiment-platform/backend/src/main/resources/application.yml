@@ -1,0 +1,53 @@
+server:
+  port: 9090
+
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/sentiment_db?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=UTF-8&allowPublicKeyRetrieval=true
+    username: root
+    password: ${MYSQL_PASSWORD:123456}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  redis:
+    host: localhost
+    port: 6379
+    password: ${REDIS_PASSWORD:}
+    database: 0
+  mail:
+    host: ${MAIL_HOST:smtp.qq.com}
+    port: 587
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
+
+mybatis-plus:
+  mapper-locations: classpath*:mapper/**/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      id-type: auto
+
+# Sentiment platform config
+sentiment:
+  model:
+    path: ${MODEL_PATH:D:/A01/sentiment-platform/model/sentiment_model.zip}
+  analysis:
+    batch-size: 64
+    min-batch-size: 8
+    interval-seconds: 30
+  collector:
+    weibo-interval-ms: 300000
+    xhs-interval-ms: 600000
+  topic:
+    cluster-interval-ms: 3600000
+    eps: 0.3
+    min-samples: 5
+    similarity-threshold: 0.85
+
+# Notification config
+notification:
+  webhook-url: ${NOTIFICATION_WEBHOOK:}
+  webhook-type: ${NOTIFICATION_WEBHOOK_TYPE:wechat}  # wechat | dingtalk
+  email-to: ${NOTIFICATION_EMAIL:}

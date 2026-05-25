@@ -1,0 +1,21 @@
+训练完成 - 中文情感分析 TextCNN 模型
+模型架构
+
+Input[500个字符哈希索引] → 字向量嵌入(256维) → Conv1D×2 → 全局最大池化 → Dense(64) → Dropout → Softmax(2类)
+参数量: 284,098
+验证集结果 (750条)
+指标	数值
+准确率 Accuracy	90.13%
+精确率 Precision	91.69%
+召回率 Recall	88.27%
+F1 Score	0.8995
+混淆矩阵：
+
+
+        预测neg  预测pos
+实际neg    345      30
+实际pos     44     331
+生成文件
+文件	大小	说明
+model/sentiment_model.zip	3.1 MB	训练好的模型
+predictions.csv	7501 行	7500条测试集预测结果

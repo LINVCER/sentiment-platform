@@ -1,0 +1,6 @@
+target/
+tools/
+*.class
+*.jar
+!lib/*.jar
+.DS_Store
