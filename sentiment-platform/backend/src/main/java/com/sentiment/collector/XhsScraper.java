@@ -11,13 +11,18 @@ import com.microsoft.playwright.options.Cookie;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.InputStreamReader;
 import java.net.URLEncoder;
 import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 
 @Component
@@ -43,6 +48,15 @@ public class XhsScraper {
 
     @Autowired
     private HealthCheckService healthCheckService;
+
+    @Value("${spring.datasource.url}")
+    private String dbUrl;
+
+    @Value("${spring.datasource.username}")
+    private String dbUsername;
+
+    @Value("${spring.datasource.password}")
+    private String dbPassword;
 
     /**
      * Interactive login: opens browser for user to scan QR code.
@@ -135,114 +149,75 @@ public class XhsScraper {
         }
 
         int savedCount = 0;
-        try (Playwright playwright = Playwright.create()) {
-            Browser browser = playwright.chromium().launch(
-                    new BrowserType.LaunchOptions()
-                            .setHeadless(true)
-                            .setSlowMo(500));
+        try {
+            String[] dbInfo = parseJdbcUrl(dbUrl);
+            String host = dbInfo[0];
+            String port = dbInfo[1];
+            String db = dbInfo[2];
 
-            BrowserContext context = browser.newContext(
-                    new Browser.NewContextOptions()
-                            .setUserAgent(USER_AGENTS[ThreadLocalRandom.current().nextInt(USER_AGENTS.length)])
-                            .setViewportSize(1440, 900)
-                            .setLocale("zh-CN")
-                            .setTimezoneId("Asia/Shanghai"));
-
-            loadCookies(context);
-
-            Page page = context.newPage();
-            page.addInitScript("Object.defineProperty(navigator, 'webdriver', {get: () => undefined});");
-
-            String url = String.format(SEARCH_URL, URLEncoder.encode(keyword, "UTF-8"));
-            log.info("Navigating to XHS search: {}", keyword);
-
-            page.navigate(url, new Page.NavigateOptions().setTimeout(30000));
-            page.waitForTimeout(3000 + ThreadLocalRandom.current().nextInt(2000));
-
-            // Check if login wall appears (cookies expired)
-            if (page.locator(".login-container, .qrcode-img, #loginBtn").count() > 0) {
-                log.warn("XHS login wall detected. Cookies may have expired. Please re-login.");
-                healthCheckService.heartbeat("xhs_scraper", "degraded",
-                        "{\"keyword\":\"" + keyword + "\",\"error\":\"cookies_expired\"}");
-                // Clear invalid cookies
-                redisTemplate.delete(REDIS_COOKIE_KEY);
-                browser.close();
-                return 0;
+            String userDir = System.getProperty("user.dir");
+            File scrapyDir = new File(userDir, "sentiment-platform/scrapy_collector");
+            if (!scrapyDir.exists()) {
+                scrapyDir = new File(userDir, "scrapy_collector");
+            }
+            if (!scrapyDir.exists()) {
+                scrapyDir = new File("D:/A01/sentiment-platform/scrapy_collector");
             }
 
-            // Scroll to load more
-            for (int i = 0; i < 3; i++) {
-                page.evaluate("window.scrollBy(0, 800)");
-                page.waitForTimeout(1500 + ThreadLocalRandom.current().nextInt(1000));
-            }
+            log.info("Running XHS Scrapy crawler for keyword: '{}' in: {}", keyword, scrapyDir.getAbsolutePath());
 
-            // Parse note cards
-            List<Locator> noteCards = page.locator("section.note-item, div.note-item").all();
-            log.info("Found {} note cards for keyword: {}", noteCards.size(), keyword);
+            int countBefore = postMapper.selectCount(
+                    new LambdaQueryWrapper<Post>()
+                            .eq(Post::getPlatform, "xiaohongshu")).intValue();
 
-            for (Locator card : noteCards) {
-                try {
-                    Locator titleEl = card.locator(".title, a.title, .note-title");
-                    String title = titleEl.count() > 0 ? titleEl.first().innerText().trim() : "";
+            ProcessBuilder pb = new ProcessBuilder(
+                    "py", "-m", "scrapy", "crawl", "xhs", "-a", "keyword=" + keyword
+            );
+            pb.directory(scrapyDir);
 
-                    Locator authorEl = card.locator(".author-wrapper .name, .nickname, .author .name");
-                    String author = authorEl.count() > 0 ? authorEl.first().innerText().trim() : "";
+            Map<String, String> env = pb.environment();
+            env.put("MYSQL_HOST", host);
+            env.put("MYSQL_PORT", port);
+            env.put("MYSQL_USER", dbUsername);
+            env.put("MYSQL_PASSWORD", dbPassword);
+            env.put("MYSQL_DATABASE", db);
 
-                    Locator likeEl = card.locator(".like-wrapper .count, .engagement .like span");
-                    String likeStr = likeEl.count() > 0 ? likeEl.first().innerText().trim() : "0";
-                    int likes = parseCount(likeStr);
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
 
-                    Locator linkEl = card.locator("a[href*='/explore/'], a[href*='/discovery/item/'], a[href*='/search_result/']");
-                    String noteUrl = linkEl.count() > 0 ? linkEl.first().getAttribute("href") : "";
-                    if (noteUrl != null && !noteUrl.startsWith("http")) {
-                        noteUrl = "https://www.xiaohongshu.com" + noteUrl;
-                    }
-
-                    String noteId = extractNoteId(noteUrl);
-                    if (title.isEmpty() && noteUrl.isEmpty()) continue;
-
-                    String fullContent = title;
-                    if (noteUrl != null && !noteUrl.isEmpty()) {
-                        fullContent = fetchNoteContent(page, noteUrl, title);
-                    }
-
-                    Post post = new Post();
-                    post.setPlatform("xiaohongshu");
-                    post.setPostId("xhs_" + noteId);
-                    post.setAuthor(author);
-                    post.setContent(fullContent.isEmpty() ? title : fullContent);
-                    post.setPublishTime(LocalDateTime.now());
-                    post.setLikes(likes);
-                    post.setUrl(noteUrl);
-                    post.setAnalyzeStatus(0);
-
-                    Long existing = postMapper.selectCount(
-                            new LambdaQueryWrapper<Post>()
-                                    .eq(Post::getPlatform, "xiaohongshu")
-                                    .eq(Post::getPostId, "xhs_" + noteId));
-                    if (existing == 0) {
-                        postMapper.insert(post);
-                        savedCount++;
-                    }
-
-                    Thread.sleep(800 + ThreadLocalRandom.current().nextInt(1200));
-                } catch (Exception e) {
-                    log.debug("Failed to parse a XHS note card", e);
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(process.getInputStream(), "UTF-8"))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    log.debug("[Scrapy XHS] " + line);
                 }
             }
 
-            saveCookies(context);
-            browser.close();
-            healthCheckService.heartbeat("xhs_scraper", "healthy",
-                    "{\"keyword\":\"" + keyword + "\",\"saved\":" + savedCount + "}");
+            int exitCode = process.waitFor();
+            log.info("XHS Scrapy process finished with exit code: " + exitCode);
+
+            int countAfter = postMapper.selectCount(
+                    new LambdaQueryWrapper<Post>()
+                            .eq(Post::getPlatform, "xiaohongshu")).intValue();
+
+            savedCount = countAfter - countBefore;
+
+            if (exitCode == 0) {
+                healthCheckService.heartbeat("xhs_scraper", "healthy",
+                        "{\"keyword\":\"" + keyword + "\",\"saved\":" + savedCount + "}");
+            } else {
+                healthCheckService.heartbeat("xhs_scraper", "degraded",
+                        "{\"keyword\":\"" + keyword + "\",\"error\":\"process_exit_code_" + exitCode + "\"}");
+            }
 
         } catch (Exception e) {
-            log.error("XHS scraping failed for keyword: {}", keyword, e);
+            log.error("XHS Scrapy execution failed for keyword: {}", keyword, e);
             healthCheckService.heartbeat("xhs_scraper", "degraded",
                     "{\"keyword\":\"" + keyword + "\",\"error\":\"" + e.getMessage() + "\"}");
         }
         return savedCount;
     }
+
 
     private String fetchNoteContent(Page mainPage, String noteUrl, String fallback) {
         try {
@@ -300,5 +275,30 @@ public class XhsScraper {
         } catch (Exception e) {
             log.debug("Failed to save XHS cookies", e);
         }
+    }
+
+    private String[] parseJdbcUrl(String url) {
+        String host = "localhost";
+        String port = "3306";
+        String db = "sentiment_db";
+        try {
+            String clean = url.substring(url.indexOf("//") + 2);
+            int slashIdx = clean.indexOf("/");
+            String hostPort = clean.substring(0, slashIdx);
+            db = clean.substring(slashIdx + 1);
+            if (db.contains("?")) {
+                db = db.substring(0, db.indexOf("?"));
+            }
+            if (hostPort.contains(":")) {
+                String[] parts = hostPort.split(":");
+                host = parts[0];
+                port = parts[1];
+            } else {
+                host = hostPort;
+            }
+        } catch (Exception e) {
+            log.warn("Failed to parse JDBC url: {}, using defaults", url);
+        }
+        return new String[]{host, port, db};
     }
 }
