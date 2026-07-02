@@ -36,28 +36,30 @@ sentiment-platform/
 │   │   ├── config/                   # 配置类（Redis、MyBatis-Plus、WebSocket）
 │   │   ├── controller/               # REST API 控制器
 │   │   ├── entity/                   # 数据库实体类
+│   │   ├── health/                   # 健康检查服务
 │   │   ├── mapper/                   # MyBatis-Plus Mapper 接口
-│   │   ├── service/                  # 业务逻辑层
-│   │   └── util/                     # 工具类（数据生成器等）
+│   │   ├── service/                  # 业务逻辑层（目前暂空，控制器直接调用 Mapper）
+│   │   └── util/                     # 工具类（数据生成器、模型信息查看工具等）
 │   ├── src/main/resources/
 │   │   └── application.yml           # 应用配置
-│   ├── model/                        # 预训练情感模型 (sentiment_model.zip)
 │   └── pom.xml
 ├── frontend/                         # Vue 3 前端
 │   ├── src/
 │   │   ├── views/                    # 页面组件
-│   │   ├── components/               # 公共组件
 │   │   ├── router/                   # 路由配置
 │   │   ├── App.vue
 │   │   └── main.js
 │   └── package.json
+├── model/                            # 预训练情感模型 (sentiment_model.zip)
 └── sql/
     └── init.sql                      # 数据库初始化脚本
 
 文本信息情感分析/                        # TextCNN 模型训练模块（独立项目）
 └── src/main/java/com/sentiment/
-    └── SentimentModel.java           # TextCNN 训练与评估
+    ├── SentimentModel.java           # TextCNN 训练与评估
+    └── SmokeTest.java                # 冒烟测试类
 ```
+
 
 ## 数据库设计
 

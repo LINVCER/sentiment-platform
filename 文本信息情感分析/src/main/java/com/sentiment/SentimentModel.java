@@ -82,7 +82,9 @@ public class SentimentModel {
     static final String TRAIN_NEG  = DATA_ROOT + "/train/train/neg";
     static final String TEST_DIR   = DATA_ROOT + "/test/test";
     static final String OUTPUT_DIR = System.getProperty("output.dir",
-            Paths.get(System.getProperty("user.dir")).resolve("文本信息情感分析").toString());
+            System.getProperty("user.dir").endsWith("文本信息情感分析") ?
+                    System.getProperty("user.dir") :
+                    Paths.get(System.getProperty("user.dir")).resolve("文本信息情感分析").toString());
     static final String MODEL_PATH = OUTPUT_DIR + "/model/sentiment_model.zip";
     static final String PRED_PATH  = OUTPUT_DIR + "/predictions.csv";
 
