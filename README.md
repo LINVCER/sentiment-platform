@@ -4,7 +4,7 @@
 
 ## 功能特性
 
-- **多平台数据采集** — 通过 Playwright 爬取微博、小红书帖子数据
+- **多平台数据采集** — 基于 Python Scrapy 异步爬虫框架与 Java Playwright 联动，高效采集微博与小红书帖子数据，集成自动防屏蔽、断线重试及 MySQL 管道持久化
 - **情感分析** — 基于 TextCNN 深度学习模型（DL4J），自动判断帖子正面/负面情感
 - **话题聚类** — TF-IDF + DBSCAN 算法自动发现热点话题
 - **趋势分析** — 按时间/地域维度展示情感走势与分布
@@ -21,7 +21,7 @@
 | 数据库 | MySQL 8.0、Redis |
 | 深度学习 | DeepLearning4J 1.0.0-M2.1、ND4J (CUDA 11.6) |
 | NLP | HanLP (中文分词) |
-| 爬虫 | Playwright 1.44.0 |
+| 爬虫 | Scrapy 2.16.0 (Python 异步爬虫框架) / Playwright (Java 侧扫码与 Cookie 管理) |
 | 通知 | OkHttp (Webhook)、Spring Mail |
 
 ## 项目结构
@@ -30,7 +30,7 @@
 sentiment-platform/
 ├── backend/                          # Spring Boot 后端
 │   ├── src/main/java/com/sentiment/
-│   │   ├── collector/                # 数据采集（微博、小红书爬虫）
+│   │   ├── collector/                # 数据采集（调用 Python 爬虫接口）
 │   │   ├── analyzer/                 # 情感分析、关键词提取、话题聚类
 │   │   ├── alert/                    # 告警引擎与通知服务
 │   │   ├── config/                   # 配置类（Redis、MyBatis-Plus、WebSocket）
@@ -50,6 +50,13 @@ sentiment-platform/
 │   │   ├── App.vue
 │   │   └── main.js
 │   └── package.json
+├── scrapy_collector/                 # Python Scrapy 舆情采集子项目
+│   ├── scrapy_collector/
+│   │   ├── spiders/                  # 微博/小红书爬虫逻辑 (weibo.py, xhs.py)
+│   │   ├── items.py                  # Scrapy 数据模型
+│   │   ├── pipelines.py              # MySQL 数据持久化管道
+│   │   └── settings.py               # 核心参数与数据库连接配置
+│   └── scrapy.cfg                    # Scrapy 项目配置文件
 ├── model/                            # 预训练情感模型 (sentiment_model.zip)
 └── sql/
     └── init.sql                      # 数据库初始化脚本
@@ -115,6 +122,7 @@ Input [batch, 1500] (字符哈希索引序列)
 - Node.js 16+
 - MySQL 8.0+
 - Redis 6+
+- Python 3.10+ (用于运行 Scrapy 采集器)
 - CUDA 11.6（GPU 加速推理，可选）
 
 ### 1. 初始化数据库
@@ -123,7 +131,13 @@ Input [batch, 1500] (字符哈希索引序列)
 mysql -u root -p < sentiment-platform/sql/init.sql
 ```
 
-### 2. 配置环境变量（可选）
+### 2. 安装 Python 依赖（运行爬虫所需）
+
+```bash
+pip install scrapy mysql-connector-python redis
+```
+
+### 3. 配置环境变量（可选）
 
 ```bash
 export MYSQL_PASSWORD=your_password
@@ -132,7 +146,7 @@ export MODEL_PATH=/path/to/sentiment_model.zip
 export NOTIFICATION_WEBHOOK=https://your-webhook-url
 ```
 
-### 3. 启动后端
+### 4. 启动后端
 
 ```bash
 cd sentiment-platform/backend
@@ -141,7 +155,7 @@ mvn spring-boot:run
 
 后端服务默认运行在 `http://localhost:9090`
 
-### 4. 启动前端
+### 5. 启动前端
 
 ```bash
 cd sentiment-platform/frontend
@@ -151,7 +165,7 @@ npm run dev
 
 前端开发服务器默认运行在 `http://localhost:5173`
 
-### 5. 训练情感模型（可选）
+### 6. 训练情感模型（可选）
 
 ```bash
 cd 文本信息情感分析
